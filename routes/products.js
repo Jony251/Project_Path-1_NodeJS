@@ -1,85 +1,119 @@
+/**
+ * Products Router - Handles all product-related routes
+ * Implements CRUD operations with authentication and authorization
+ */
+
 const express = require('express');
 const router = express.Router();
-const dbSingleton = require('../database/dbSingleton');
+const ProductModel = require('../models/productModel');
 
-const db = dbSingleton.getConnection();
-
-router.post('/', (req, res) => {
-    const { name, price } = req.body;
-    const query = 'INSERT INTO products (name, price) VALUES (?, ?)';
-    db.query(query, [name, price], (err, results) => {
-        if (err) {
-            res.status(500).send(err);
-            return;
-        }
-        res.json({ message: 'Product added!', id: results.insertId });
-    });
+/**
+ * @route   POST /products
+ * @desc    Create a new product
+ * @access  Private - Requires authentication
+ */
+router.post('/', async (req, res) => {
+    try {
+        const result = await ProductModel.create(req.body);
+        res.status(201).json({ 
+            message: 'Product added!',
+            id: result.insertId
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
-router.get('/', (req, res, next) => {
+/**
+ * @route   GET /products
+ * @desc    Get all products with creator information
+ * @access  Private - Requires authentication
+ */
+router.get('/', async (req, res, next) => {
     try {
         const { limit } = req.query;
-
         if (limit && isNaN(limit)) {
             return res.status(400).json({ error: 'Parameter "limit" must be a number' });
         }
 
-        const query = limit
-            ? 'SELECT * FROM products LIMIT ?'
-            : 'SELECT * FROM products';
-        
-        const params = limit ? [parseInt(limit, 10)] : [];
-       
-        db.query(query, params, (err, results) => {
-            if (err) {
-                return next(err);
-            }
-            res.json(results);
-        });
+        const products = await ProductModel.findAll(limit ? parseInt(limit, 10) : null);
+        res.json(products);
     } catch (error) {
         next(error);
     }
 });       
 
-router.get('/:id', (req, res) => {
-    const { id } = req.params;
-    const query = 'SELECT * FROM products WHERE id = ?';
-    db.query(query, [id], (err, results) => {
-        if (err) {
-            res.status(500).send(err);
-            return;
+/**
+ * @route   GET /products/:id
+ * @desc    Get a single product by ID
+ * @access  Private - Requires authentication
+ */
+router.get('/:id', async (req, res) => {
+    try {
+        const product = await ProductModel.findById(req.params.id);
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
         }
-        if (results.length === 0) {
-            res.status(404).json({ message: 'Product not found' });
-            return;
-        }
-        res.json(results[0]);
-    });
+        res.json(product);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
-router.put('/:id', (req, res) => {
-    const { id } = req.params;
-    const { name, price } = req.body;
-    const query = 'UPDATE products SET name = ?, price = ? WHERE id = ?';
-    db.query(query, [name, price, id], (err, results) => {
-        if (err) {
-            res.status(500).send(err);
-            return;
+/**
+ * @route   PUT /products/:id
+ * @desc    Update a product
+ * @access  Private - Only creator or admin can update
+ */
+router.put('/:id', async (req, res) => {
+    try {
+        const product = await ProductModel.findById(req.params.id);
+        
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
         }
-        res.json({ message: 'Product updated!' });
-    });
+
+        // Check if user has permission to update
+        if (!req.session.isAdmin && product.created_by !== req.session.userId) {
+            return res.status(403).json({ error: 'You can only update products you created' });
+        }
+
+        const result = await ProductModel.update(req.params.id, req.body);
+        res.json({ 
+            message: 'Product updated successfully',
+            affectedRows: result.affectedRows
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
-router.delete('/:id', (req, res) => {
-    const { id } = req.params;
-    const query = 'DELETE FROM products WHERE id = ?';
-    db.query(query, [id], (err, results) => {
-        if (err) {
-            res.status(500).send(err);
-            return;
+/**
+ * @route   DELETE /products/:id
+ * @desc    Delete a product
+ * @access  Private - Only creator or admin can delete
+ */
+router.delete('/:id', async (req, res) => {
+    try {
+        const product = await ProductModel.findById(req.params.id);
+        
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
         }
-        res.json({ message: 'Product deleted!' });
-    });
+
+        // Check if user has permission to delete
+        if (!req.session.isAdmin && product.created_by !== req.session.userId) {
+            return res.status(403).json({ error: 'You can only delete products you created' });
+        }
+
+        const result = await ProductModel.delete(req.params.id);
+        res.json({ 
+            message: 'Product deleted successfully',
+            affectedRows: result.affectedRows
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 module.exports = router;

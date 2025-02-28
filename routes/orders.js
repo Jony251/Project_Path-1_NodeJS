@@ -1,4 +1,3 @@
-
 const express = require('express');
 const router = express.Router();
 const dbSingleton = require('../database/dbSingleton');

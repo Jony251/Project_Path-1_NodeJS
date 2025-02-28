@@ -27,6 +27,7 @@ const dbSingleton = {
                     throw err;
                 }
                 console.log('Connected to MySQL!');
+
             });
         }
         return connection;

@@ -5,7 +5,11 @@ const bcrypt = require('bcrypt');
 
 const db = dbSingleton.getConnection();
 
-router.post('/', async (req, res) => {
+/**
+ * Register a new user
+ * @route POST /users/register
+ */
+router.post('/register', async (req, res) => {
     try {
         const { name, email, password } = req.body;
         
@@ -28,6 +32,10 @@ router.post('/', async (req, res) => {
     }
 });
 
+/**
+ * Login user
+ * @route POST /users/login
+ */
 router.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -52,11 +60,17 @@ router.post('/login', async (req, res) => {
                 return;
             }
 
+            // Set session data
+            req.session.userId = user.id;
+            req.session.isAdmin = user.role === 'admin';
+            req.session.save();
+
             res.json({ 
                 message: 'Login successful',
                 userId: user.id,
                 name: user.name,
-                email: user.email
+                email: user.email,
+                role: user.role
             });
         });
     } catch (error) {
@@ -64,11 +78,32 @@ router.post('/login', async (req, res) => {
     }
 });
 
+/**
+ * Logout user
+ * @route POST /users/logout
+ */
+router.post('/logout', (req, res) => {
+    req.session.destroy((err) => {
+        if (err) {
+            res.status(500).json({ error: 'Could not log out' });
+            return;
+        }
+        res.json({ message: 'Logged out successfully' });
+    });
+});
+
+/**
+ * Get user by ID
+ * @route GET /users/:id
+ */
 router.get('/:id', (req, res) => {
-    const { id } = req.params;
-    const query = 'SELECT id, name, email, created_at FROM users WHERE id = ?';
-    
-    db.query(query, [id], (err, results) => {
+    // Users can only view their own profile unless they're admin
+    if (req.params.id != req.session.userId && !req.session.isAdmin) {
+        return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const query = 'SELECT id, name, email, role, created_at FROM users WHERE id = ?';
+    db.query(query, [req.params.id], (err, results) => {
         if (err) {
             res.status(500).json({ error: err.message });
             return;
@@ -83,9 +118,16 @@ router.get('/:id', (req, res) => {
     });
 });
 
+/**
+ * Get all users (admin only)
+ * @route GET /users
+ */
 router.get('/', (req, res) => {
-    const query = 'SELECT id, name, email, created_at FROM users';
-    
+    if (!req.session.isAdmin) {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const query = 'SELECT id, name, email, role, created_at FROM users';
     db.query(query, (err, results) => {
         if (err) {
             res.status(500).json({ error: err.message });
@@ -95,9 +137,17 @@ router.get('/', (req, res) => {
     });
 });
 
+/**
+ * Update user
+ * @route PUT /users/:id
+ */
 router.put('/:id', async (req, res) => {
     try {
-        const { id } = req.params;
+        // Users can only update their own profile unless they're admin
+        if (req.params.id != req.session.userId && !req.session.isAdmin) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
         const { name, email, password } = req.body;
         
         let query;
@@ -107,10 +157,10 @@ router.put('/:id', async (req, res) => {
             const salt = await bcrypt.genSalt(10);
             const hashedPassword = await bcrypt.hash(password, salt);
             query = 'UPDATE users SET name = ?, email = ?, password = ? WHERE id = ?';
-            params = [name, email, hashedPassword, id];
+            params = [name, email, hashedPassword, req.params.id];
         } else {
             query = 'UPDATE users SET name = ?, email = ? WHERE id = ?';
-            params = [name, email, id];
+            params = [name, email, req.params.id];
         }
 
         db.query(query, params, (err, results) => {
@@ -129,11 +179,17 @@ router.put('/:id', async (req, res) => {
     }
 });
 
+/**
+ * Delete user (admin only)
+ * @route DELETE /users/:id
+ */
 router.delete('/:id', (req, res) => {
-    const { id } = req.params;
+    if (!req.session.isAdmin) {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+
     const query = 'DELETE FROM users WHERE id = ?';
-    
-    db.query(query, [id], (err, results) => {
+    db.query(query, [req.params.id], (err, results) => {
         if (err) {
             res.status(500).json({ error: err.message });
             return;
